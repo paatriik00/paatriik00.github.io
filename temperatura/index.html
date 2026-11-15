@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Temperatura DS18B20</title>
+<style>
+:root{--bg:#0b1118;--card:#111b26;--bd:#1e2d3d;--tx:#d6e4f0;--mu:#6f8499;--cy:#22d3ee;--rd:#fb4f6b;--bl:#60a5fa;--gr:#34d399;--am:#fbbf24}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:ui-monospace,Menlo,Consolas,monospace;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+h1{font-size:1.1rem;letter-spacing:.15em;margin:0;color:var(--cy)}
+h1 small{display:block;color:var(--mu);font-size:.65rem;letter-spacing:.1em}
+.badge{border:1px solid var(--am);color:var(--am);border-radius:99px;padding:3px 12px;font-size:.75rem}
+.badge.ok{border-color:var(--gr);color:var(--gr)}
+.grid{display:grid;gap:12px;grid-template-columns:1fr 2fr}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+.lbl{color:var(--mu);font-size:.65rem;letter-spacing:.15em;text-transform:uppercase}
+.big{font-size:4rem;color:var(--cy);text-align:center;margin:12px 0 0}
+.sub{text-align:center;color:var(--mu)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;grid-column:2}
+.stats .v{font-size:1.6rem;margin-top:6px}
+.row2{grid-column:2}
+.full{grid-column:1/-1}
+button{background:none;border:1px solid var(--bd);color:var(--mu);border-radius:6px;padding:6px 12px;font:inherit;font-size:.75rem;cursor:pointer}
+button.on{border-color:var(--cy);color:var(--cy)}
+.dl{display:block;margin:16px auto 0}
+svg{width:100%;height:auto;display:block}
+table{width:100%;border-collapse:collapse;font-size:.8rem;margin-top:8px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)}
+th{color:var(--mu);font-weight:400}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.stats,.row2{grid-column:1}}
+</style>
+</head>
+<body>
+<header>
+<h1>TEMPERATURE MONITOR<small>DS18B20 · Raspberry Pi · GitHub Pages</small></h1>
+<div><span class="lbl" id="cd"></span> <span class="badge" id="badge">carregant…</span></div>
+</header>
+<div class="grid">
+<div class="card" style="grid-row:span 2">
+<div class="lbl" style="text-align:center">Temperatura actual</div>
+<div class="big"><span id="cur">--</span><span style="font-size:1.4rem;color:var(--mu)" id="u"> °C</span></div>
+<div class="sub" id="alt">--</div>
+<div class="sub" style="font-size:.7rem;margin-top:14px" id="last">Última lectura: --</div>
+<button class="dl" id="csv">⬇ DESCARREGAR CSV</button>
+</div>
+<div class="stats">
+<div class="card"><div class="lbl">Màxim</div><div class="v" id="mx" style="color:var(--rd)">--</div></div>
+<div class="card"><div class="lbl">Mínim</div><div class="v" id="mn" style="color:var(--bl)">--</div></div>
+<div class="card"><div class="lbl">Mitjana</div><div class="v" id="av" style="color:var(--gr)">--</div></div>
+</div>
+<div class="card row2">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span class="lbl">Historial de temperatura</span>
+<span><button id="bc" class="on">°C</button> <button id="bf">°F</button></span>
+</div>
+<svg id="chart" viewBox="0 0 600 220"></svg>
+</div>
+<div class="card full">
+<div class="lbl">Lectures recents</div>
+<table><thead><tr><th>Data i hora</th><th>Temperatura</th></tr></thead><tbody id="tb"></tbody></table>
+</div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)},unit="C",rows=[],left=60;
+function cv(c){return unit==="C"?c:c*9/5+32}
+function fm(c){return cv(c).toFixed(1)}
+function fmt(t){return new Date(t).toLocaleString("ca-ES")}
+function chart(){
+ var s=$("chart");
+ if(rows.length<2){s.innerHTML="";return}
+ var v=rows.map(function(r){return cv(r.c)}),lo=Math.min.apply(null,v),hi=Math.max.apply(null,v);
+ if(hi-lo<.5){lo-=.25;hi+=.25}
+ var x=function(i){return 50+i*540/(v.length-1)},y=function(a){return 190-(a-lo)/(hi-lo)*170};
+ var p=v.map(function(a,i){return x(i).toFixed(1)+","+y(a).toFixed(1)}).join(" ");
+ s.innerHTML='<polygon points="50,190 '+p+' '+x(v.length-1)+',190" fill="#22d3ee" fill-opacity=".12"/>'+
+ '<polyline points="'+p+'" fill="none" stroke="#22d3ee" stroke-width="2"/>'+
+ '<text x="46" y="24" fill="#6f8499" font-size="11" text-anchor="end">'+hi.toFixed(1)+'</text>'+
+ '<text x="46" y="194" fill="#6f8499" font-size="11" text-anchor="end">'+lo.toFixed(1)+'</text>'+
+ '<text x="50" y="210" fill="#6f8499" font-size="10">'+fmt(rows[0].t)+'</text>'+
+ '<text x="590" y="210" fill="#6f8499" font-size="10" text-anchor="end">'+fmt(rows[rows.length-1].t)+'</text>';
+}
+function render(){
+ var b=$("badge");
+ if(!rows.length){b.textContent="sense dades";return}
+ var cs=rows.map(function(r){return r.c}),l=rows[rows.length-1];
+ var age=(Date.now()-new Date(l.t))/60000;
+ b.textContent=age<2?"en directe":"obsolet ("+Math.round(age)+" min)";
+ b.className="badge"+(age<2?" ok":"");
+ $("u").textContent=unit==="C"?" °C":" °F";
+ $("cur").textContent=fm(l.c);
+ $("alt").textContent=unit==="C"?(l.c*9/5+32).toFixed(1)+" °F":l.c.toFixed(1)+" °C";
+ $("last").textContent="Última lectura: "+fmt(l.t);
+ $("mx").textContent=fm(Math.max.apply(null,cs))+"°";
+ $("mn").textContent=fm(Math.min.apply(null,cs))+"°";
+ $("av").textContent=fm(cs.reduce(function(a,b){return a+b},0)/cs.length)+"°";
+ $("tb").innerHTML=rows.slice(-10).reverse().map(function(r){return "<tr><td>"+fmt(r.t)+"</td><td>"+fm(r.c)+" °"+unit+"</td></tr>"}).join("");
+ chart();
+}
+function load(){
+ fetch("data.json?t="+Date.now()).then(function(r){return r.json()}).then(function(d){rows=d.readings||[];render()}).catch(function(){$("badge").textContent="error de dades"});
+ left=60;
+}
+function setU(u){unit=u;$("bc").className=u==="C"?"on":"";$("bf").className=u==="F"?"on":"";render()}
+$("bc").onclick=function(){setU("C")};
+$("bf").onclick=function(){setU("F")};
+$("csv").onclick=function(){
+ var t="data,celsius,fahrenheit\n"+rows.map(function(r){return r.t+","+r.c+","+(r.c*9/5+32).toFixed(3)}).join("\n");
+ var a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([t],{type:"text/csv"}));
+ a.download="temperatures.csv";a.click();
+};
+setInterval(function(){left--;$("cd").textContent="refresh en "+left+"s";if(left<=0)load()},1000);
+load();
+</script>
+</body>
+</html>
